@@ -1,5 +1,4 @@
 import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js'
-
 const engine = new PlayerPropsEngine()
 
 export default async function handler(req, res) {
