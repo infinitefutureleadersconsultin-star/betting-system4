@@ -1,5 +1,4 @@
 import { GameLinesEngine } from '../lib/engines/gameLinesEngine.js'
-
 const engine = new GameLinesEngine()
 
 export default async function handler(req, res) {
