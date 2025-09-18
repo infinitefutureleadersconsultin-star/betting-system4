@@ -39,11 +39,7 @@ export default async function handler(req, res) {
       },
     };
 
-    const source =
-      typeof result?.meta?.dataSource === 'string'
-        ? result.meta.dataSource
-        : 'fallback';
-
+    const source = typeof result?.meta?.dataSource === 'string' ? result.meta.dataSource : 'fallback';
     return res.status(200).json({ ...response, meta: { dataSource: source } });
   } catch (err) {
     console.error('analyze-prop fatal', err);
