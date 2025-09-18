@@ -1,54 +1,41 @@
-import { track } from '@vercel/analytics';
+// src/utils/analytics.js
+// No imports needed — works with Vite out of the box.
 
-const LS_KEY = 'mbs_logs_v1';
-
-function toFlat(obj) {
-  // remove big nested blobs; keep only useful fields for CSV
-  const keep = {};
-  for (const [k,v] of Object.entries(obj || {})) {
-    if (v == null) continue;
-    if (typeof v === 'object') continue;
-    keep[k] = v;
-  }
-  return keep;
-}
-
-export function logAnalysisEvent(type, payload = {}) {
+export function logAnalysisEvent(type, payload) {
   try {
-    // Send a compact event to Vercel Analytics
-    track(`mbs_${type}`, toFlat(payload));
-  } catch {}
+    const row = {
+      ts: new Date().toISOString(),
+      type,
+      ...payload,
+    };
 
-  try {
-    // Also store locally for CSV export
-    const logs = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
-    logs.push({ ts: new Date().toISOString(), type, ...toFlat(payload) });
-    // keep last 2000 entries
-    while (logs.length > 2000) logs.shift();
-    localStorage.setItem(LS_KEY, JSON.stringify(logs));
-  } catch {}
-}
+    // 1) Persist to localStorage for calibration exports later
+    const KEY = 'mbs_calibration_log';
+    const existing = JSON.parse(localStorage.getItem(KEY) || '[]');
+    existing.push(row);
+    localStorage.setItem(KEY, JSON.stringify(existing));
 
-export function downloadLogsCSV() {
-  try {
-    const logs = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
-    if (!logs.length) return alert('No logs yet.');
-    const headers = Array.from(new Set(logs.flatMap(o => Object.keys(o))));
-    const lines = [
-      headers.join(',')
-    ];
-    for (const row of logs) {
-      lines.push(headers.map(h => JSON.stringify(row[h] ?? '')).join(','));
+    // 2) Send to a tiny serverless endpoint for centralized logs
+    const body = JSON.stringify(row);
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      navigator.sendBeacon('/api/analytics', blob);
+    } else {
+      // fallback for older browsers / SSR
+      fetch('/api/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true
+      }).catch(() => {});
     }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'mbs-logs.csv';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+
+    // 3) Optional: Vercel Analytics (only if their script is on the page)
+    if (typeof window !== 'undefined' && window.va && typeof window.va.track === 'function') {
+      window.va.track('analysis', row);
+    }
   } catch (e) {
-    alert('Failed to export CSV');
+    // swallow — logging should never break the app
+    // console.warn('logAnalysisEvent failed', e);
   }
 }
