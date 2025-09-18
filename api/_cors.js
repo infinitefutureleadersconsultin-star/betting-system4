@@ -1,10 +1,9 @@
-// api/_cors.js
-import cors from "cors";
+import cors from 'cors';
 
 const corsMiddleware = cors({
-  origin: true,                // reflect request origin
+  origin: true,
   credentials: true,
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ['GET','POST','OPTIONS'],
 });
 
 export function runCors(req, res) {
