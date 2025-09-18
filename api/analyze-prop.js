@@ -1,5 +1,5 @@
 // api/analyze-prop.js
-import { runCors } from "./_utils/_cors.js";
+import { runCors } from "./_cors.js";
 import { APIClient } from "../lib/apiClient.js";
 import { PlayerPropsEngine } from "../lib/engines/playerPropsEngine.js";
 
