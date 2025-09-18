@@ -5,13 +5,28 @@ import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js';
 const apiClient = new APIClient(process.env.SPORTSDATA_API_KEY || '');
 const engine = new PlayerPropsEngine(apiClient);
 
+// read JSON body even when req.body is undefined on Vercel
+async function readJSON(req) {
+  if (req.body && typeof req.body === 'object') return req.body;
+  if (typeof req.body === 'string') {
+    try { return JSON.parse(req.body || '{}'); } catch { return {}; }
+  }
+  return await new Promise((resolve) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); }
+    });
+  });
+}
+
 export default async function handler(req, res) {
   try {
     await runCors(req, res);
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-    const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    const raw = await readJSON(req);
     const body = {
       ...raw,
       odds: { over: Number(raw?.odds?.over) || 2.0, under: Number(raw?.odds?.under) || 1.8 },
@@ -39,7 +54,7 @@ export default async function handler(req, res) {
       },
     };
 
-    const source = typeof result?.meta?.dataSource === 'string' ? result.meta.dataSource : 'fallback';
+    const source = (typeof result?.meta?.dataSource === 'string') ? result.meta.dataSource : 'fallback';
     return res.status(200).json({ ...response, meta: { dataSource: source } });
   } catch (err) {
     console.error('analyze-prop fatal', err);
