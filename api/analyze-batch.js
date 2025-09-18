@@ -1,48 +1,44 @@
-// api/analyze-batch.js
-import { runCors } from "./_cors.js";
-import { APIClient } from "../lib/apiClient.js";
-import { PlayerPropsEngine } from "../lib/engines/playerPropsEngine.js";
-import { GameLinesEngine } from "../lib/engines/gameLinesEngine.js";
+import { runCors } from './_cors.js';
+import { APIClient } from '../lib/apiClient.js';
+import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js';
+import { GameLinesEngine } from '../lib/engines/gameLinesEngine.js';
 
-const apiClient   = new APIClient(process.env.SPORTSDATA_API_KEY || "");
+const apiClient = new APIClient(process.env.SPORTSDATA_API_KEY || '');
 const propsEngine = new PlayerPropsEngine(apiClient);
 const gameEngine  = new GameLinesEngine(apiClient);
 
 export default async function handler(req, res) {
   try {
     await runCors(req, res);
-    if (req.method === "OPTIONS") return res.status(200).end();
-    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-    const raw = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
-    const { props = [], games = [] } = raw;
+    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    const { props = [], games = [] } = body;
 
-    // Run both lists safely; do not explode the whole batch if one fails
-    const propSettled = await Promise.allSettled(props.map(p => propsEngine.evaluateProp(p)));
-    const gameSettled = await Promise.allSettled(games.map(g => gameEngine.evaluateGameLine(g)));
+    const propResults = await Promise.allSettled(props.map(p => propsEngine.evaluateProp(p)));
+    const gameResults = await Promise.allSettled(games.map(g => gameEngine.evaluateGameLine(g)));
 
-    const propResults = propSettled
-      .map(r => r.status === "fulfilled" ? r.value : { decision: "ERROR", message: "Prop analysis failed" });
-
-    const gameResults = gameSettled
-      .map(r => r.status === "fulfilled" ? r.value : { recommendation: "PASS", confidence: 0, message: "Game analysis failed" });
+    const ok = x => x.status === 'fulfilled';
+    const propsOk = propResults.filter(ok).map(r => r.value);
+    const gamesOk = gameResults.filter(ok).map(r => r.value);
 
     return res.status(200).json({
-      props: propResults,
-      games: gameResults,
+      props: propsOk,
+      games: gamesOk,
       summary: {
-        totalProps: propResults.length,
-        propsToLock: propResults.filter(p => p.decision === "LOCK").length,
-        totalGames: gameResults.length,
-        gamesToBet: gameResults.filter(g => g.recommendation === "BET").length,
+        totalProps: propsOk.length,
+        propsToLock: propsOk.filter(p => p.decision === 'LOCK').length,
+        totalGames: gamesOk.length,
+        gamesToBet: gamesOk.filter(g => g.recommendation === 'BET').length,
       },
       errors: {
-        propErrors: propSettled.filter(r => r.status === "rejected").length,
-        gameErrors: gameSettled.filter(r => r.status === "rejected").length,
+        propErrors: propResults.length - propsOk.length,
+        gameErrors: gameResults.length - gamesOk.length,
       },
     });
   } catch (e) {
-    console.error("analyze-batch error", e);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error('analyze-batch error', e);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }
