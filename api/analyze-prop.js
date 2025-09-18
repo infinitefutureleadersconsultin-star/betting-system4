@@ -21,7 +21,8 @@ export default async function handler(req, res) {
     const result = await engine.evaluateProp(body);
     const n = (x, d=0)=>Number.isFinite(x)?x:d;
 
-    return res.status(200).json({
+    const source = (typeof result?.meta?.dataSource === "string") ? result.meta.dataSource : "unknown";
+return res.status(200).json({ ...response, meta: { dataSource: source } });
       player: result.player || body.player || 'Unknown Player',
       prop: result.prop || body.prop || 'Prop',
       suggestion: result.suggestion || (n(result?.rawNumbers?.modelProbability,0.5) >= 0.5 ? 'OVER' : 'UNDER'),
