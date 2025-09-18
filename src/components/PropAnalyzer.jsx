@@ -1,10 +1,12 @@
-import { useState } from 'react'
-import axios from 'axios'
-import ResultCard from './ResultCard.jsx'
-import LoadingSpinner from './LoadingSpinner.jsx'
+// src/components/PropAnalyzer.jsx
+import React, { useState } from 'react';
+import axios from 'axios';
+import ResultCard from './ResultCard';
+import LoadingSpinner from './LoadingSpinner';
+import { logAnalysisEvent } from '../utils/analytics';
 
-export default function PropAnalyzer() {
-  const [form, setForm] = useState({
+const PropAnalyzer = () => {
+  const [formData, setFormData] = useState({
     sport: 'NBA',
     player: '',
     opponent: '',
@@ -15,55 +17,86 @@ export default function PropAnalyzer() {
     workload: '',
     injuryNotes: '',
     additional: ''
-  })
-  const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  });
 
-  const handleChange = (field, value) => {
-    if (field.includes('.')) {
-      const [p, c] = field.split('.')
-      setForm(prev => ({ ...prev, [p]: { ...prev[p], [c]: value } }))
-    } else {
-      setForm(prev => ({ ...prev, [field]: value }))
-    }
-  }
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const onSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true); setError(''); setResult(null)
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setResult(null);
 
     try {
-      const payload = {
-        ...form,
+      const analysisData = {
+        ...formData,
         odds: {
-          over: parseFloat(form.odds.over),
-          under: parseFloat(form.odds.under)
+          over: parseFloat(formData.odds.over),
+          under: parseFloat(formData.odds.under),
         },
-        workload: form.workload === '' ? 'AUTO' : form.workload
-      }
-      const res = await axios.post('/api/analyze-prop', payload, {
-        headers: { 'Content-Type': 'application/json' }
-      })
-      setResult(res.data)
+        // keep AUTO if user leaves blank
+        workload: formData.workload === '' ? 'AUTO' : formData.workload,
+      };
+
+      const response = await axios.post('/api/analyze-prop', analysisData);
+      const data = response.data;
+
+      setResult(data);
+
+      // === Calibration log (Vercel Analytics + localStorage CSV) ===
+      logAnalysisEvent('prop', {
+        sport: formData.sport,
+        player: formData.player,
+        opponent: formData.opponent,
+        prop: formData.prop,
+        over: formData.odds.over,
+        under: formData.odds.under,
+        startTime: formData.startTime,
+        decision: data?.decision,
+        suggestion: data?.suggestion,
+        finalConfidence: data?.finalConfidence
+      });
+      // =============================================================
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Analysis failed.')
+      setError(err.response?.data?.message || 'Analysis failed. Please try again.');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
+
+  const handleInputChange = (field, value) => {
+    if (field.includes('.')) {
+      const [parent, child] = field.split('.');
+      setFormData((prev) => ({
+        ...prev,
+        [parent]: {
+          ...prev[parent],
+          [child]: value,
+        },
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [field]: value,
+      }));
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* Form */}
+      {/* Input Form */}
       <div className="bg-dark-card rounded-lg p-6">
         <h2 className="text-xl font-bold mb-6 text-betting-green">Player Prop Analysis</h2>
-        <form onSubmit={onSubmit} className="space-y-4">
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Sport Selection */}
           <div>
             <label className="block text-sm font-medium mb-2">Sport</label>
             <select
-              value={form.sport}
-              onChange={(e) => handleChange('sport', e.target.value)}
+              value={formData.sport}
+              onChange={(e) => handleInputChange('sport', e.target.value)}
               className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
             >
               <option value="MLB">MLB</option>
@@ -73,75 +106,133 @@ export default function PropAnalyzer() {
             </select>
           </div>
 
+          {/* Player Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">Player</label>
-              <input className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                value={form.player} onChange={e => handleChange('player', e.target.value)} placeholder="Player Name (TEAM)" required />
+              <input
+                type="text"
+                value={formData.player}
+                onChange={(e) => handleInputChange('player', e.target.value)}
+                placeholder="Player Name (TEAM)"
+                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
+                required
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Opponent</label>
-              <input className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                value={form.opponent} onChange={e => handleChange('opponent', e.target.value)} placeholder="OPP" required />
+              <input
+                type="text"
+                value={formData.opponent}
+                onChange={(e) => handleInputChange('opponent', e.target.value)}
+                placeholder="OPP"
+                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
+                required
+              />
             </div>
           </div>
 
+          {/* Prop & Odds */}
           <div>
             <label className="block text-sm font-medium mb-2">Prop</label>
-            <input className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-              value={form.prop} onChange={e => handleChange('prop', e.target.value)} placeholder="Assists 5.5, Strikeouts 6.5, etc." required />
+            <input
+              type="text"
+              value={formData.prop}
+              onChange={(e) => handleInputChange('prop', e.target.value)}
+              placeholder="e.g., Assists 5.5, Strikeouts 6.5, Pass Yards 275.5"
+              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
+              required
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">Over Odds</label>
-              <input type="number" step="0.01"
+              <input
+                type="number"
+                step="0.01"
+                value={formData.odds.over}
+                onChange={(e) => handleInputChange('odds.over', e.target.value)}
+                placeholder="2.10"
                 className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                value={form.odds.over} onChange={e => handleChange('odds.over', e.target.value)} placeholder="2.10" required />
+                required
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Under Odds</label>
-              <input type="number" step="0.01"
+              <input
+                type="number"
+                step="0.01"
+                value={formData.odds.under}
+                onChange={(e) => handleInputChange('odds.under', e.target.value)}
+                placeholder="1.75"
                 className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                value={form.odds.under} onChange={e => handleChange('odds.under', e.target.value)} placeholder="1.75" required />
+                required
+              />
             </div>
           </div>
 
+          {/* Game Details */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">Start Time</label>
-              <input type="datetime-local"
+              <input
+                type="datetime-local"
+                value={formData.startTime}
+                onChange={(e) => handleInputChange('startTime', e.target.value)}
                 className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                value={form.startTime} onChange={e => handleChange('startTime', e.target.value)} required />
+                required
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Workload</label>
               <input
+                type="text"
+                value={formData.workload}
+                onChange={(e) => handleInputChange('workload', e.target.value)}
+                placeholder="32 min / 6.0 IP / 35 attempts (optional)"
                 className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                value={form.workload} onChange={e => handleChange('workload', e.target.value)} placeholder="32 min / 6.0 IP / 35 attempts" />
+              />
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-2">Venue</label>
-            <input className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-              value={form.venue} onChange={e => handleChange('venue', e.target.value)} placeholder="Stadium/Arena" />
+            <input
+              type="text"
+              value={formData.venue}
+              onChange={(e) => handleInputChange('venue', e.target.value)}
+              placeholder="Stadium/Arena (optional)"
+              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
+            />
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-2">Injury/Rest Notes</label>
-            <input className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-              value={form.injuryNotes} onChange={e => handleChange('injuryNotes', e.target.value)} placeholder="NONE, Questionable (knee), etc." />
+            <input
+              type="text"
+              value={formData.injuryNotes}
+              onChange={(e) => handleInputChange('injuryNotes', e.target.value)}
+              placeholder="NONE, Questionable (knee), etc. (optional)"
+              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
+            />
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-2">Additional Notes</label>
-            <textarea className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green h-20"
-              value={form.additional} onChange={e => handleChange('additional', e.target.value)} placeholder="Weather, matchup notes, etc." />
+            <textarea
+              value={formData.additional}
+              onChange={(e) => handleInputChange('additional', e.target.value)}
+              placeholder="Weather, matchup notes, etc. (optional)"
+              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green h-20"
+            />
           </div>
 
-          <button type="submit" disabled={loading}
-            className="w-full bg-betting-green text-white py-3 px-6 rounded-md font-medium hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-betting-green text-white py-3 px-6 rounded-md font-medium hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
             {loading ? 'Analyzing...' : 'Analyze Prop'}
           </button>
         </form>
@@ -156,8 +247,11 @@ export default function PropAnalyzer() {
       {/* Results */}
       <div className="bg-dark-card rounded-lg p-6">
         <h2 className="text-xl font-bold mb-6 text-betting-green">Analysis Result</h2>
+
         {loading && <LoadingSpinner />}
+
         {result && <ResultCard result={result} type="prop" />}
+
         {!loading && !result && (
           <div className="text-center text-gray-400 py-12">
             <div className="text-4xl mb-4">📊</div>
@@ -166,5 +260,7 @@ export default function PropAnalyzer() {
         )}
       </div>
     </div>
-  )
-}
+  );
+};
+
+export default PropAnalyzer;
