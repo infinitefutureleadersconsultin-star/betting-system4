@@ -1,4 +1,3 @@
-// api/_cors.js
 import cors from 'cors';
 
 const corsMiddleware = cors({
