@@ -1,22 +1,63 @@
 // src/utils/analytics.js
-let vercel;
-try { vercel = await import('@vercel/analytics'); } catch { vercel = null; }
-const va = vercel?.track ? vercel : { track: () => {} };
+// Lightweight, zero-dependency analytics used only in the browser.
+// Stores the last 1000 events in localStorage and lets you download them as CSV.
 
-const logs = [];
+const KEY = "mbs_logs_v1";
 
-export function logAnalysisEvent(kind, payload) {
-  logs.push({ ts: new Date().toISOString(), kind, ...payload });
-  try { va.track('analysis', { kind, ...payload }); } catch {}
+export function logAnalysisEvent(kind, payload = {}) {
+  if (typeof window === "undefined") return; // no-op on server
+  try {
+    const now = new Date().toISOString();
+    const entry = { t: now, kind, ...payload };
+    const arr = JSON.parse(localStorage.getItem(KEY) || "[]");
+    arr.push(entry);
+    if (arr.length > 1000) arr.splice(0, arr.length - 1000);
+    localStorage.setItem(KEY, JSON.stringify(arr));
+    // Helpful while debugging:
+    // console.info("[analytics]", entry);
+  } catch {
+    // swallow
+  }
 }
 
-export function downloadLogsCSV() {
-  const cols = ['ts','kind','sport','player','opponent','prop','over','under','startTime','decision','suggestion','finalConfidence'];
-  const header = cols.join(',');
-  const rows = logs.map(r => cols.map(c => (r[c] ?? '')).join(','));
-  const blob = new Blob([ [header, ...rows].join('\n') ], { type: 'text/csv' });
+export function getLogs() {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function downloadLogsCSV(filename = "analysis-logs.csv") {
+  if (typeof window === "undefined") return;
+  const rows = getLogs();
+  if (!rows.length) {
+    alert("No logs yet.");
+    return;
+  }
+  const headers = Array.from(
+    rows.reduce((set, r) => {
+      Object.keys(r).forEach((k) => set.add(k));
+      return set;
+    }, new Set())
+  );
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) =>
+      headers
+        .map((h) => JSON.stringify(r[h] ?? "")) // quote + escape
+        .join(",")
+    ),
+  ].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'analysis-logs.csv'; a.click();
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
   URL.revokeObjectURL(url);
+  a.remove();
 }
