@@ -8,31 +8,31 @@ const engine = new PlayerPropsEngine(apiClient);
 
 export default async function handler(req, res) {
   try {
-    await runCors(req, res);
+    // CORS (and short-circuit OPTIONS)
+    const proceed = await runCors(req, res);
+    if (proceed === false) return;
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     console.log('[analyze-prop] start', { path: req.url });
 
-    // Body parsing that never throws
-    let raw = req.body;
-    if (typeof raw === 'string') {
-      try { raw = JSON.parse(raw || '{}'); } catch { raw = {}; }
-    }
-    if (!raw || typeof raw !== 'object') raw = {};
-
+    // Parse body safely
+    const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const body = {
       ...raw,
       odds: {
         over: Number(raw?.odds?.over) || 2.0,
         under: Number(raw?.odds?.under) || 1.8,
       },
+      // If user omitted startTime, default to ~6h ahead (same-day lookups)
       startTime: raw?.startTime || new Date(Date.now() + 6 * 3600e3).toISOString(),
     };
 
+    // Run engine (engine is already hardened against bad dates, etc.)
     const result = await engine.evaluateProp(body);
     const n = (x, d = 0) => (Number.isFinite(x) ? x : d);
 
+    // Build response FIRST (avoid referencing an undefined `response`)
     const response = {
       player: result.player || body.player || 'Unknown Player',
       prop: result.prop || body.prop || 'Prop',
@@ -51,8 +51,13 @@ export default async function handler(req, res) {
       },
     };
 
+    // Add meta AFTER building the response
     const source = typeof result?.meta?.dataSource === 'string' ? result.meta.dataSource : 'fallback';
-    console.log('[analyze-prop] ok', { source, decision: response.decision, finalConfidence: response.finalConfidence });
+    console.log('[analyze-prop] ok', {
+      source,
+      decision: response.decision,
+      finalConfidence: response.finalConfidence,
+    });
 
     return res.status(200).json({ ...response, meta: { dataSource: source } });
   } catch (err) {
