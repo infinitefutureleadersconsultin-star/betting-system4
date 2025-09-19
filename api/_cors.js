@@ -1,37 +1,12 @@
 // api/_cors.js
-// Small, dependency-free CORS helper for Vercel/Node ESM.
-// Returns `false` if it handled the request (OPTIONS/405), otherwise `true`.
+export async function runCors(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-export function runCors(req, res, opts = {}) {
-  const {
-    origin = process.env.CORS_ORIGIN || "*",
-    methods = ["POST"],                // allowed app methods for this route
-    headers = "Content-Type, Authorization",
-    credentials = false,               // set true if you need cookies/credentials
-  } = opts;
-
-  // CORS headers
-  res.setHeader("Access-Control-Allow-Origin", origin);
-  res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", ["OPTIONS", ...methods].join(", "));
-  res.setHeader("Access-Control-Allow-Headers", headers);
-  if (credentials) res.setHeader("Access-Control-Allow-Credentials", "true");
-
-  // Preflight
   if (req.method === "OPTIONS") {
-    res.status(200).end();
-    return false; // tell caller we already responded
+    res.status(204).end();
+    return false; // handled
   }
-
-  // Method guard (405)
-  if (!methods.includes(req.method)) {
-    res.setHeader("Allow", ["OPTIONS", ...methods]);
-    res.status(405).json({ error: "Method Not Allowed" });
-    return false;
-  }
-
-  return true; // proceed
+  return true;
 }
-
-// Provide a default export so `import runCors from "./_cors.js"` works.
-export default runCors;
