@@ -1,14 +1,28 @@
-// api/_cors.js  (no external deps)
-export async function runCors(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+// api/_cors.js
+import corsPkg from 'cors';
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return false; // tell caller we handled preflight
-  }
-  return true;
+// Make it ESM/CJS agnostic
+const corsFn = (corsPkg && corsPkg.default) ? corsPkg.default : corsPkg;
+
+/**
+ * Run CORS safely. We construct the middleware INSIDE the handler
+ * so nothing executes at import-time anymore.
+ */
+export function runCors(req, res) {
+  const corsMiddleware = corsFn({
+    origin: true,             // reflect request origin
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+  });
+
+  return new Promise((resolve, reject) => {
+    try {
+      corsMiddleware(req, res, (result) => {
+        if (result instanceof Error) return reject(result);
+        resolve(result);
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
