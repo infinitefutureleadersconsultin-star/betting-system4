@@ -1,4 +1,3 @@
-// api/analyze-prop.js
 import { runCors } from './_cors.js';
 import { APIClient } from '../lib/apiClient.js';
 import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js';
@@ -8,31 +7,22 @@ const engine = new PlayerPropsEngine(apiClient);
 
 export default async function handler(req, res) {
   try {
-    // CORS (and short-circuit OPTIONS)
-    const proceed = await runCors(req, res);
-    if (proceed === false) return;
+    await runCors(req, res);
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     console.log('[analyze-prop] start', { path: req.url });
 
-    // Parse body safely
     const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const body = {
       ...raw,
-      odds: {
-        over: Number(raw?.odds?.over) || 2.0,
-        under: Number(raw?.odds?.under) || 1.8,
-      },
-      // If user omitted startTime, default to ~6h ahead (same-day lookups)
+      odds: { over: Number(raw?.odds?.over) || 2.0, under: Number(raw?.odds?.under) || 1.8 },
       startTime: raw?.startTime || new Date(Date.now() + 6 * 3600e3).toISOString(),
     };
 
-    // Run engine (engine is already hardened against bad dates, etc.)
     const result = await engine.evaluateProp(body);
     const n = (x, d = 0) => (Number.isFinite(x) ? x : d);
 
-    // Build response FIRST (avoid referencing an undefined `response`)
     const response = {
       player: result.player || body.player || 'Unknown Player',
       prop: result.prop || body.prop || 'Prop',
@@ -51,19 +41,22 @@ export default async function handler(req, res) {
       },
     };
 
-    // Add meta AFTER building the response
     const source = typeof result?.meta?.dataSource === 'string' ? result.meta.dataSource : 'fallback';
+    const meta = {
+      dataSource: source,
+      usedEndpoints: Array.isArray(result?.meta?.usedEndpoints) ? result.meta.usedEndpoints : []
+    };
+
     console.log('[analyze-prop] ok', {
-      source,
+      source: meta.dataSource,
+      usedEndpoints: meta.usedEndpoints,
       decision: response.decision,
-      finalConfidence: response.finalConfidence,
+      finalConfidence: response.finalConfidence
     });
 
-    return res.status(200).json({ ...response, meta: { dataSource: source } });
+    return res.status(200).json({ ...response, meta });
   } catch (err) {
     console.error('[analyze-prop] fatal', err?.stack || err?.message || err);
-    return res
-      .status(500)
-      .json({ error: 'Internal server error', details: String(err?.message || err) });
+    return res.status(500).json({ error: 'Internal server error', details: String(err?.message || err) });
   }
 }
