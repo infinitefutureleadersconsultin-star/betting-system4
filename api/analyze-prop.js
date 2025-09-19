@@ -8,16 +8,19 @@ const engine = new PlayerPropsEngine(apiClient);
 
 export default async function handler(req, res) {
   try {
-    const proceed = await runCors(req, res);
-    if (proceed === false) return; // OPTIONS preflight handled
+    await runCors(req, res);
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     console.log('[analyze-prop] start', { path: req.url });
 
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
+    // Body parsing that never throws
+    let raw = req.body;
+    if (typeof raw === 'string') {
+      try { raw = JSON.parse(raw || '{}'); } catch { raw = {}; }
     }
+    if (!raw || typeof raw !== 'object') raw = {};
 
-    const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const body = {
       ...raw,
       odds: {
@@ -54,6 +57,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ ...response, meta: { dataSource: source } });
   } catch (err) {
     console.error('[analyze-prop] fatal', err?.stack || err?.message || err);
-    return res.status(500).json({ error: 'Internal server error', details: String(err?.message || err) });
+    return res
+      .status(500)
+      .json({ error: 'Internal server error', details: String(err?.message || err) });
   }
 }
