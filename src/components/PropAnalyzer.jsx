@@ -1,266 +1,210 @@
-// src/components/PropAnalyzer.jsx
 import React, { useState } from 'react';
 import axios from 'axios';
-import ResultCard from './ResultCard';
 import LoadingSpinner from './LoadingSpinner';
-import { logAnalysisEvent } from '../utils/analytics';
+import ResultCard from './ResultCard';
 
-const PropAnalyzer = () => {
-  const [formData, setFormData] = useState({
+export default function PropAnalyzer() {
+  const [form, setForm] = useState({
     sport: 'NBA',
     player: '',
     opponent: '',
-    prop: '',
-    odds: { over: '', under: '' },
-    startTime: '',
-    venue: '',
-    workload: '',
-    injuryNotes: '',
-    additional: ''
+    prop: '',               // e.g., "Points 23.5" or "Strikeouts 6.5"
+    oddsOver: '2.0',        // decimal odds (e.g., 1.90, 2.05)
+    oddsUnder: '1.8',
+    startTimeLocal: ''      // HTML datetime-local string
   });
 
-  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e) => {
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const toISOFromLocal = (local) => {
+    try {
+      if (!local) return '';
+      // "YYYY-MM-DDTHH:mm" -> ISO
+      const d = new Date(local);
+      if (isNaN(d)) return '';
+      return d.toISOString();
+    } catch {
+      return '';
+    }
+  };
+
+  const handleAnalyze = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     setResult(null);
 
+    const analysisData = {
+      sport: (form.sport || '').trim(),
+      player: (form.player || '').trim(),
+      opponent: (form.opponent || '').trim(),
+      prop: (form.prop || '').trim(),
+      odds: {
+        over: parseFloat(form.oddsOver),
+        under: parseFloat(form.oddsUnder),
+      },
+      // if user didn't pick a time, backend will default to now+6h
+      startTime: toISOFromLocal(form.startTimeLocal),
+    };
+
     try {
-      const analysisData = {
-        ...formData,
-        odds: {
-          over: parseFloat(formData.odds.over),
-          under: parseFloat(formData.odds.under),
-        },
-        // keep AUTO if user leaves blank
-        workload: formData.workload === '' ? 'AUTO' : formData.workload,
-      };
-
       const response = await axios.post('/api/analyze-prop', analysisData);
+      console.log('[UI] /api/analyze-prop status', response.status, response.data);
       const data = response.data;
-
       setResult(data);
-
-      // === Calibration log (Vercel Analytics + localStorage CSV) ===
-      logAnalysisEvent('prop', {
-        sport: formData.sport,
-        player: formData.player,
-        opponent: formData.opponent,
-        prop: formData.prop,
-        over: formData.odds.over,
-        under: formData.odds.under,
-        startTime: formData.startTime,
-        decision: data?.decision,
-        suggestion: data?.suggestion,
-        finalConfidence: data?.finalConfidence
-      });
-      // =============================================================
     } catch (err) {
-      setError(err.response?.data?.message || 'Analysis failed. Please try again.');
+      console.error(
+        '[UI] analyze-prop failed',
+        err?.response?.status,
+        err?.response?.data || err?.message
+      );
+      setError(
+        err?.response?.data?.error ||
+        err?.message ||
+        'Analysis failed. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInputChange = (field, value) => {
-    if (field.includes('.')) {
-      const [parent, child] = field.split('.');
-      setFormData((prev) => ({
-        ...prev,
-        [parent]: {
-          ...prev[parent],
-          [child]: value,
-        },
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        [field]: value,
-      }));
-    }
-  };
-
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* Input Form */}
-      <div className="bg-dark-card rounded-lg p-6">
-        <h2 className="text-xl font-bold mb-6 text-betting-green">Player Prop Analysis</h2>
+    <div className="max-w-3xl mx-auto p-4 space-y-6">
+      <h2 className="text-2xl font-semibold">Player Prop Analyzer</h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Sport Selection */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Sport</label>
-            <select
-              value={formData.sport}
-              onChange={(e) => handleInputChange('sport', e.target.value)}
-              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-            >
-              <option value="MLB">MLB</option>
-              <option value="NBA">NBA</option>
-              <option value="WNBA">WNBA</option>
-              <option value="NFL">NFL</option>
-            </select>
-          </div>
+      <form onSubmit={handleAnalyze} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Sport */}
+        <label className="flex flex-col">
+          <span className="text-sm font-medium mb-1">Sport</span>
+          <select
+            name="sport"
+            value={form.sport}
+            onChange={handleChange}
+            className="border rounded p-2"
+          >
+            <option>NBA</option>
+            <option>WNBA</option>
+            <option>MLB</option>
+            <option>NFL</option>
+          </select>
+        </label>
 
-          {/* Player Info */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Player</label>
-              <input
-                type="text"
-                value={formData.player}
-                onChange={(e) => handleInputChange('player', e.target.value)}
-                placeholder="Player Name (TEAM)"
-                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Opponent</label>
-              <input
-                type="text"
-                value={formData.opponent}
-                onChange={(e) => handleInputChange('opponent', e.target.value)}
-                placeholder="OPP"
-                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                required
-              />
-            </div>
-          </div>
+        {/* Start Time */}
+        <label className="flex flex-col">
+          <span className="text-sm font-medium mb-1">Start Time (local)</span>
+          <input
+            type="datetime-local"
+            name="startTimeLocal"
+            value={form.startTimeLocal}
+            onChange={handleChange}
+            className="border rounded p-2"
+          />
+        </label>
 
-          {/* Prop & Odds */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Prop</label>
-            <input
-              type="text"
-              value={formData.prop}
-              onChange={(e) => handleInputChange('prop', e.target.value)}
-              placeholder="e.g., Assists 5.5, Strikeouts 6.5, Pass Yards 275.5"
-              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-              required
-            />
-          </div>
+        {/* Player */}
+        <label className="flex flex-col">
+          <span className="text-sm font-medium mb-1">Player</span>
+          <input
+            type="text"
+            name="player"
+            value={form.player}
+            onChange={handleChange}
+            placeholder="e.g., Nikola Jokic"
+            className="border rounded p-2"
+            required
+          />
+        </label>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Over Odds</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.odds.over}
-                onChange={(e) => handleInputChange('odds.over', e.target.value)}
-                placeholder="2.10"
-                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Under Odds</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.odds.under}
-                onChange={(e) => handleInputChange('odds.under', e.target.value)}
-                placeholder="1.75"
-                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                required
-              />
-            </div>
-          </div>
+        {/* Opponent */}
+        <label className="flex flex-col">
+          <span className="text-sm font-medium mb-1">Opponent</span>
+          <input
+            type="text"
+            name="opponent"
+            value={form.opponent}
+            onChange={handleChange}
+            placeholder="e.g., Lakers"
+            className="border rounded p-2"
+          />
+        </label>
 
-          {/* Game Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Start Time</label>
-              <input
-                type="datetime-local"
-                value={formData.startTime}
-                onChange={(e) => handleInputChange('startTime', e.target.value)}
-                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Workload</label>
-              <input
-                type="text"
-                value={formData.workload}
-                onChange={(e) => handleInputChange('workload', e.target.value)}
-                placeholder="32 min / 6.0 IP / 35 attempts (optional)"
-                className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-              />
-            </div>
-          </div>
+        {/* Prop */}
+        <label className="flex flex-col md:col-span-2">
+          <span className="text-sm font-medium mb-1">Prop</span>
+          <input
+            type="text"
+            name="prop"
+            value={form.prop}
+            onChange={handleChange}
+            placeholder='e.g., "Points 23.5", "Assists 8.5", "Strikeouts 6.5"'
+            className="border rounded p-2"
+            required
+          />
+        </label>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Venue</label>
-            <input
-              type="text"
-              value={formData.venue}
-              onChange={(e) => handleInputChange('venue', e.target.value)}
-              placeholder="Stadium/Arena (optional)"
-              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-            />
-          </div>
+        {/* Odds Over */}
+        <label className="flex flex-col">
+          <span className="text-sm font-medium mb-1">Over (decimal odds)</span>
+          <input
+            type="number"
+            step="0.01"
+            name="oddsOver"
+            value={form.oddsOver}
+            onChange={handleChange}
+            className="border rounded p-2"
+          />
+        </label>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Injury/Rest Notes</label>
-            <input
-              type="text"
-              value={formData.injuryNotes}
-              onChange={(e) => handleInputChange('injuryNotes', e.target.value)}
-              placeholder="NONE, Questionable (knee), etc. (optional)"
-              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green"
-            />
-          </div>
+        {/* Odds Under */}
+        <label className="flex flex-col">
+          <span className="text-sm font-medium mb-1">Under (decimal odds)</span>
+          <input
+            type="number"
+            step="0.01"
+            name="oddsUnder"
+            value={form.oddsUnder}
+            onChange={handleChange}
+            className="border rounded p-2"
+          />
+        </label>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Additional Notes</label>
-            <textarea
-              value={formData.additional}
-              onChange={(e) => handleInputChange('additional', e.target.value)}
-              placeholder="Weather, matchup notes, etc. (optional)"
-              className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 focus:border-betting-green focus:ring-1 focus:ring-betting-green h-20"
-            />
-          </div>
-
+        <div className="md:col-span-2 flex items-center gap-3">
           <button
             type="submit"
+            className="bg-black text-white px-4 py-2 rounded hover:opacity-90 disabled:opacity-60"
             disabled={loading}
-            className="w-full bg-betting-green text-white py-3 px-6 rounded-md font-medium hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {loading ? 'Analyzing...' : 'Analyze Prop'}
+            Analyze Prop
           </button>
-        </form>
+          {loading && <LoadingSpinner />}
+        </div>
+      </form>
 
-        {error && (
-          <div className="mt-4 p-4 bg-red-900 border border-red-700 rounded-md">
-            <p className="text-red-300">{error}</p>
+      {error && (
+        <div className="text-red-600 text-sm border border-red-200 rounded p-3 bg-red-50">
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-4">
+          {/* If your ResultCard expects a specific shape, this should match what the API returns */}
+          <ResultCard result={result} />
+
+          {/* Simple fallback rendering (kept in case ResultCard has different props) */}
+          <div className="border rounded p-4">
+            <div className="font-semibold mb-2">Analysis Result (raw)</div>
+            <pre className="text-xs overflow-auto">{JSON.stringify(result, null, 2)}</pre>
           </div>
-        )}
-      </div>
-
-      {/* Results */}
-      <div className="bg-dark-card rounded-lg p-6">
-        <h2 className="text-xl font-bold mb-6 text-betting-green">Analysis Result</h2>
-
-        {loading && <LoadingSpinner />}
-
-        {result && <ResultCard result={result} type="prop" />}
-
-        {!loading && !result && (
-          <div className="text-center text-gray-400 py-12">
-            <div className="text-4xl mb-4">📊</div>
-            <p>Enter prop details and click analyze to see results</p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
-};
-
-export default PropAnalyzer;
+}
