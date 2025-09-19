@@ -1,3 +1,4 @@
+// api/analyze-prop.js
 import { runCors } from './_cors.js';
 import { APIClient } from '../lib/apiClient.js';
 import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js';
@@ -5,31 +6,24 @@ import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js';
 const apiClient = new APIClient(process.env.SPORTSDATA_API_KEY || '');
 const engine = new PlayerPropsEngine(apiClient);
 
-// read JSON body even when req.body is undefined on Vercel
-async function readJSON(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  if (typeof req.body === 'string') {
-    try { return JSON.parse(req.body || '{}'); } catch { return {}; }
-  }
-  return await new Promise((resolve) => {
-    let data = '';
-    req.on('data', chunk => { data += chunk; });
-    req.on('end', () => {
-      try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); }
-    });
-  });
-}
-
 export default async function handler(req, res) {
   try {
-    await runCors(req, res);
-    if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const proceed = await runCors(req, res);
+    if (proceed === false) return; // OPTIONS preflight handled
 
-    const raw = await readJSON(req);
+    console.log('[analyze-prop] start', { path: req.url });
+
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const body = {
       ...raw,
-      odds: { over: Number(raw?.odds?.over) || 2.0, under: Number(raw?.odds?.under) || 1.8 },
+      odds: {
+        over: Number(raw?.odds?.over) || 2.0,
+        under: Number(raw?.odds?.under) || 1.8,
+      },
       startTime: raw?.startTime || new Date(Date.now() + 6 * 3600e3).toISOString(),
     };
 
@@ -54,10 +48,12 @@ export default async function handler(req, res) {
       },
     };
 
-    const source = (typeof result?.meta?.dataSource === 'string') ? result.meta.dataSource : 'fallback';
+    const source = typeof result?.meta?.dataSource === 'string' ? result.meta.dataSource : 'fallback';
+    console.log('[analyze-prop] ok', { source, decision: response.decision, finalConfidence: response.finalConfidence });
+
     return res.status(200).json({ ...response, meta: { dataSource: source } });
   } catch (err) {
-    console.error('analyze-prop fatal', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('[analyze-prop] fatal', err?.stack || err?.message || err);
+    return res.status(500).json({ error: 'Internal server error', details: String(err?.message || err) });
   }
 }
