@@ -1,57 +1,35 @@
 // api/analyze-prop.js
-import { runCors } from './_cors.js';
-import { APIClient } from '../lib/apiClient.js';
-import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js';
-
-const apiClient = new APIClient(process.env.SPORTSDATA_API_KEY || '');
-const engine = new PlayerPropsEngine(apiClient);
+import { PlayerPropsEngine } from "../lib/engines/playerPropsEngine.js";
+import { APIClient } from "../lib/apiClient.js";
+import runCors from "./_cors.js";
 
 export default async function handler(req, res) {
+  const proceed = await runCors(req, res);
+  if (proceed === false) return; // OPTIONS preflight handled
+
   try {
-    const proceed = await runCors(req, res);
-    if (proceed === false) return;
-    if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    let body = req.body;
+    if (typeof body === "string") {
+      try { body = JSON.parse(body); } catch {}
+    }
 
-    const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const body = {
-      ...raw,
-      odds: { over: Number(raw?.odds?.over) || 2.0, under: Number(raw?.odds?.under) || 1.8 },
-      startTime: raw?.startTime || new Date(Date.now() + 6 * 3600e3).toISOString(),
-    };
+    console.log("[analyze-prop] start", { path: req.url });
 
-    console.log('[analyze-prop] start', { path: req.url });
+    const client = new APIClient(process.env.SPORTSDATA_API_KEY || "");
+    const engine = new PlayerPropsEngine(client);
+    const response = await engine.evaluateProp(body || {});
 
-    const result = await engine.evaluateProp(body);
-    const n = (x, d = 0) => (Number.isFinite(x) ? x : d);
-
-    const response = {
-      player: result.player || body.player || 'Unknown Player',
-      prop: result.prop || body.prop || 'Prop',
-      suggestion: result.suggestion || (n(result?.rawNumbers?.modelProbability, 0.5) >= 0.5 ? 'OVER' : 'UNDER'),
-      decision: result.decision || 'PASS',
-      finalConfidence: n(result.finalConfidence, 0),
-      suggestedStake: n(result.suggestedStake, 0),
-      topDrivers: Array.isArray(result.topDrivers) ? result.topDrivers : [],
-      flags: Array.isArray(result.flags) ? result.flags : [],
-      rawNumbers: {
-        expectedValue: n(result?.rawNumbers?.expectedValue, 0),
-        stdDev: n(result?.rawNumbers?.stdDev, 1),
-        modelProbability: n(result?.rawNumbers?.modelProbability, 0.5),
-        marketProbability: n(result?.rawNumbers?.marketProbability, 0.5),
-        sharpSignal: n(result?.rawNumbers?.sharpSignal, 0),
-      },
-    };
-
-    const source = typeof result?.meta?.dataSource === 'string' ? result.meta.dataSource : 'fallback';
+    const source = typeof response?.meta?.dataSource === "string" ? response.meta.dataSource : "fallback";
     const meta = {
       dataSource: source,
-      usedEndpoints: Array.isArray(result?.meta?.usedEndpoints) ? result.meta.usedEndpoints : [],
-      matchedName: result?.meta?.matchedName || '',
-      zeroFiltered: Number(result?.meta?.zeroFiltered) || 0
+      usedEndpoints: Array.isArray(response?.meta?.usedEndpoints) ? response.meta.usedEndpoints : [],
+      matchedName: response?.meta?.matchedName || "",
+      zeroFiltered: Number(response?.meta?.zeroFiltered) || 0,
+      recentCount: Number(response?.meta?.recentCount) || 0,
+      recentSample: Array.isArray(response?.meta?.recentSample) ? response.meta.recentSample : []
     };
 
-    console.log('[analyze-prop] ok', {
+    console.log("[analyze-prop] ok", {
       source: meta.dataSource,
       usedEndpoints: meta.usedEndpoints,
       decision: response.decision,
@@ -60,7 +38,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ...response, meta });
   } catch (err) {
-    console.error('[analyze-prop] fatal', err?.stack || err?.message || err);
-    return res.status(500).json({ error: 'Internal server error', details: String(err?.message || err) });
+    console.error("[analyze-prop] fatal", err?.stack || err?.message || err);
+    return res.status(500).json({ error: "Internal server error", details: String(err?.message || err) });
   }
 }
