@@ -1,3 +1,4 @@
+// api/analyze-prop.js
 import { runCors } from './_cors.js';
 import { APIClient } from '../lib/apiClient.js';
 import { PlayerPropsEngine } from '../lib/engines/playerPropsEngine.js';
@@ -7,11 +8,10 @@ const engine = new PlayerPropsEngine(apiClient);
 
 export default async function handler(req, res) {
   try {
-    await runCors(req, res);
+    const proceed = await runCors(req, res);
+    if (proceed === false) return;
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-    console.log('[analyze-prop] start', { path: req.url });
 
     const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const body = {
@@ -19,6 +19,8 @@ export default async function handler(req, res) {
       odds: { over: Number(raw?.odds?.over) || 2.0, under: Number(raw?.odds?.under) || 1.8 },
       startTime: raw?.startTime || new Date(Date.now() + 6 * 3600e3).toISOString(),
     };
+
+    console.log('[analyze-prop] start', { path: req.url });
 
     const result = await engine.evaluateProp(body);
     const n = (x, d = 0) => (Number.isFinite(x) ? x : d);
@@ -44,7 +46,9 @@ export default async function handler(req, res) {
     const source = typeof result?.meta?.dataSource === 'string' ? result.meta.dataSource : 'fallback';
     const meta = {
       dataSource: source,
-      usedEndpoints: Array.isArray(result?.meta?.usedEndpoints) ? result.meta.usedEndpoints : []
+      usedEndpoints: Array.isArray(result?.meta?.usedEndpoints) ? result.meta.usedEndpoints : [],
+      matchedName: result?.meta?.matchedName || '',
+      zeroFiltered: Number(result?.meta?.zeroFiltered) || 0
     };
 
     console.log('[analyze-prop] ok', {
