@@ -2,7 +2,7 @@
 import { PlayerPropsEngine } from "../lib/engines/playerPropsEngine.js";
 import { SportsDataIOClient } from "../lib/apiClient.js";
 
-// --- Minimal CORS so we don't depend on ./_cors.js ---
+// Minimal CORS (no dependency on local _cors.js)
 function applyCors(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
@@ -15,7 +15,6 @@ function applyCors(req, res) {
   return false;
 }
 
-// Resolve a SportsDataIO API key from common env names
 function resolveSportsDataKey() {
   return (
     process.env.SPORTS_DATA_IO_KEY ||
@@ -49,21 +48,18 @@ export default async function handler(req, res) {
       injuryNotes: body.injuryNotes ?? "UNKNOWN",
     };
 
-    // Create a fresh client with an explicit key (don’t rely on a possibly-empty singleton)
     const apiKey = resolveSportsDataKey();
     const sdio = new SportsDataIOClient({ apiKey });
 
-    // Helpful debug log (key length only; never log the key)
     console.log("[analyze-prop] using SportsDataIO", {
       hasKey: apiKey ? `yes(len=${apiKey.length})` : "no",
       baseURL: sdio.baseURL
     });
 
-    // Run the engine with this client
     const engine = new PlayerPropsEngine(sdio);
     const result = await engine.evaluateProp(payload);
 
-    // Normalize meta for the client
+    // normalize meta
     const source = typeof result?.meta?.dataSource === "string" ? result.meta.dataSource : (engine.dataSource || "fallback");
     const usedEndpoints = Array.isArray(result?.meta?.usedEndpoints)
       ? result.meta.usedEndpoints
@@ -77,7 +73,6 @@ export default async function handler(req, res) {
       recentSample: Array.isArray(engine.recentSample) ? engine.recentSample : (result?.meta?.recentSample || []),
     };
 
-    // Shape the public response
     const response = {
       player: result.player,
       prop: result.prop,
