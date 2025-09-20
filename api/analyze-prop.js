@@ -1,57 +1,87 @@
 // api/analyze-prop.js
 import { PlayerPropsEngine } from "../lib/engines/playerPropsEngine.js";
 import { SportsDataIOClient } from "../lib/apiClient.js";
-import { runCors } from "./_cors.js";
 
+// --- Minimal CORS so we don't depend on ./_cors.js ---
+function applyCors(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
+  return false;
+}
+
+// Resolve a SportsDataIO API key from common env names
 function resolveSportsDataKey() {
   return (
-    process.env.SPORTS_DATA_IO_KEY ||
+    process.env.SPORTS_DATA_IO_KEY ||        // preferred
     process.env.SPORTS_DATA_IO_API_KEY ||
     process.env.SPORTSDATAIO_KEY ||
     process.env.SDIO_KEY ||
+    process.env.SPORTSDATA_API_KEY ||        // <-- your current name
+    process.env.SPORTS_DATA_API_KEY ||       // other common variants
+    process.env.SPORTS_DATA_KEY ||
     ""
   );
 }
 
 export default async function handler(req, res) {
-  if (!runCors(req, res)) return;
-  if (req.method !== "POST") {
-    res.status(405).json({ error: "Method Not Allowed" });
-    return;
-  }
-
   try {
-    const b = typeof req.body === "object" && req.body ? req.body : {};
+    if (applyCors(req, res)) return;
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method Not Allowed" });
+      return;
+    }
+
+    const body = typeof req.body === "object" && req.body ? req.body : {};
+
     const payload = {
-      sport: b.sport || "",
-      player: b.player || "",
-      opponent: b.opponent || "",
-      prop: b.prop || "",
+      sport: body.sport || "",
+      player: body.player || "",
+      opponent: body.opponent || "",
+      prop: body.prop || "",
       odds: {
-        over: Number(b?.odds?.over ?? b?.over ?? NaN),
-        under: Number(b?.odds?.under ?? b?.under ?? NaN),
+        over: Number(body?.odds?.over) || Number(body?.over) || NaN,
+        under: Number(body?.odds?.under) || Number(body?.under) || NaN,
       },
-      startTime: b.startTime || b.date || null,
-      workload: b.workload ?? "AUTO",
-      injuryNotes: b.injuryNotes ?? "UNKNOWN",
+      startTime: body.startTime || body.date || null,
+      workload: body.workload ?? "AUTO",
+      injuryNotes: body.injuryNotes ?? "UNKNOWN",
     };
 
+    // Create a fresh client with an explicit key (don’t rely on a possibly-empty singleton)
     const apiKey = resolveSportsDataKey();
     const sdio = new SportsDataIOClient({ apiKey });
 
+    // Helpful debug log (key length only; never log the key)
+    console.log("[analyze-prop] using SportsDataIO", {
+      hasKey: apiKey ? `yes(len=${apiKey.length})` : "no",
+      baseURL: sdio.baseURL
+    });
+
+    // Run the engine with this client
     const engine = new PlayerPropsEngine(sdio);
     const result = await engine.evaluateProp(payload);
 
+    // Normalize meta for the client
+    const source = typeof result?.meta?.dataSource === "string" ? result.meta.dataSource : (engine.dataSource || "fallback");
+    const usedEndpoints = Array.isArray(result?.meta?.usedEndpoints)
+      ? result.meta.usedEndpoints
+      : (engine.usedEndpoints || []);
     const meta = {
-      dataSource: result?.meta?.dataSource ?? engine.dataSource,
-      usedEndpoints: result?.meta?.usedEndpoints ?? engine.usedEndpoints,
-      matchedName: result?.meta?.matchedName ?? engine.matchedName ?? "",
-      zeroFiltered: result?.meta?.zeroFiltered ?? engine.zeroFiltered ?? 0,
-      recentCount: result?.meta?.recentCount ?? engine.recentValsCount ?? 0,
-      recentSample: result?.meta?.recentSample ?? engine.recentSample ?? [],
-      debug: result?.meta?.debug ?? engine.debug ?? null,
+      dataSource: source,
+      usedEndpoints,
+      matchedName: engine.matchedName || result?.meta?.matchedName || "",
+      zeroFiltered: Number.isFinite(engine.zeroFiltered) ? engine.zeroFiltered : (result?.meta?.zeroFiltered ?? 0),
+      recentCount: Number.isFinite(engine.recentValsCount) ? engine.recentValsCount : (result?.meta?.recentCount ?? 0),
+      recentSample: Array.isArray(engine.recentSample) ? engine.recentSample : (result?.meta?.recentSample || []),
     };
 
+    // Shape the public response
     const response = {
       player: result.player,
       prop: result.prop,
@@ -69,8 +99,7 @@ export default async function handler(req, res) {
       source: meta.dataSource,
       usedEndpoints: meta.usedEndpoints,
       decision: response.decision,
-      finalConfidence: response.finalConfidence,
-      fallbackReason: meta?.debug?.fallbackReason ?? null,
+      finalConfidence: response.finalConfidence
     });
 
     res.status(200).json(response);
