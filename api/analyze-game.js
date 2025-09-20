@@ -1,22 +1,55 @@
 // api/analyze-game.js
-import { runCors } from "./_cors.js";
-import { APIClient } from "../lib/apiClient.js";
 import { GameLinesEngine } from "../lib/engines/gameLinesEngine.js";
+import { SportsDataIOClient } from "../lib/apiClient.js";
+
+function applyCors(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
+  return false;
+}
+
+function resolveSportsDataKey() {
+  return (
+    process.env.SPORTS_DATA_IO_KEY ||
+    process.env.SPORTS_DATA_IO_API_KEY ||
+    process.env.SPORTSDATAIO_KEY ||
+    process.env.SDIO_KEY ||
+    ""
+  );
+}
 
 export default async function handler(req, res) {
-  const proceed = await runCors(req, res);
-  if (proceed === false) return;
-
   try {
-    console.log("[analyze-game] start", { path: req.url });
+    if (applyCors(req, res)) return;
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method Not Allowed" });
+      return;
+    }
 
-    let body = req.body;
-    try { if (typeof body === "string") body = JSON.parse(body); } catch {}
+    const body = typeof req.body === "object" && req.body ? req.body : {};
+    const payload = {
+      sport: body.sport || "",
+      team: body.team || "",
+      opponent: body.opponent || "",
+      startTime: body.startTime || body.date || null
+    };
 
-    const client = new APIClient(process.env.SPORTSDATA_API_KEY || process.env.SPORTSDATAIO_API_KEY || "");
-    const engine = new GameLinesEngine(client);
+    const apiKey = resolveSportsDataKey();
+    const sdio = new SportsDataIOClient({ apiKey });
 
-    const result = await engine.evaluateGame(body || {});
+    console.log("[analyze-game] using SportsDataIO", {
+      hasKey: apiKey ? `yes(len=${apiKey.length})` : "no",
+      baseURL: sdio.baseURL
+    });
+
+    const engine = new GameLinesEngine(sdio);
+    const result = await engine.evaluateGame(payload);
 
     console.log("[analyze-game] ok", {
       source: result?.meta?.dataSource,
@@ -25,9 +58,9 @@ export default async function handler(req, res) {
       finalConfidence: result?.finalConfidence
     });
 
-    return res.status(200).json(result);
+    res.status(200).json(result);
   } catch (err) {
-    console.error("[analyze-game] fatal", err?.stack || err?.message || err);
-    return res.status(500).json({ error: "Internal server error", details: String(err?.message || err) });
+    console.error("[analyze-game] error", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 }
